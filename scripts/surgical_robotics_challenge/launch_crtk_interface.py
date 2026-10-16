@@ -53,6 +53,7 @@ from argparse import ArgumentParser
 from surgical_robotics_challenge.utils.utilities import *
 from simulation_manager import SimulationManager
 from enum import Enum
+import math
 
 
 class Options:
@@ -71,6 +72,11 @@ class PSMCRTKWrapper:
         self.namespace = namespace
         self.simulation_manager = simulation_manager
         self.arm = psm_arm.PSM(simulation_manager, name, add_joint_errors=True)
+
+        # Relative Variables
+        self._relative_target = None
+        self._relative_received_at = None
+        self._relative_timeout = 0.5
         time.sleep(0.1)
 
         ral = self.simulation_manager.get_ral()
@@ -104,6 +110,9 @@ class PSMCRTKWrapper:
         self.servo_cp_sub = ral.subscriber(namespace + '/' + name + '/' + 'move_cp', PoseStamped,
                                              self.move_cp_cb, queue_size=1)
 
+        self.servo_cr_sub = ral.subscriber(namespace + '/' + name + '/' + 'servo_cr', PoseStamped,
+                                             self.servo_cr_cb, queue_size=1)
+
         self.servo_jaw_jp_sub = ral.subscriber(namespace + '/' + name + '/jaw/' + 'servo_jp', JointState,
                                                  self.servo_jaw_jp_cb, queue_size=1)
 
@@ -117,20 +126,25 @@ class PSMCRTKWrapper:
         self._jaw_angle = 0.5
 
     def servo_cp_cb(self, cp):
+        self.reset_relative_target()
         frame = pose_to_frame(cp.pose)
         self.arm.servo_cp(frame)
 
     def move_cp_cb(self, cp):
+        self.reset_relative_target()
         frame = pose_to_frame(cp.pose)
         self.arm.move_cp(frame)
 
     def servo_jp_cb(self, js):
+        self.reset_relative_target()
         self.arm.servo_jp(js.position)
 
     def move_jp_cb(self, js):
+        self.reset_relative_target()
         self.arm.move_jp(js.position)
 
     def servo_jv_cb(self, js):
+        self.reset_relative_target()
         self.arm.servo_jv(js.velocity)
 
     def servo_jaw_jp_cb(self, jp):
@@ -156,6 +170,50 @@ class PSMCRTKWrapper:
         self._T_b_w_msg.pose = np_mat_to_pose(self.arm.get_T_b_w())
         self.T_b_w_pub.publish(self._T_b_w_msg)
 
+    def reset_relative_target(self):
+        self._relative_target = None
+        self._relative_received_at = None
+
+    def servo_cr_cb(self, msg):
+        p = msg.pose.position
+        q = msg.pose.orientation
+        values = (p.x, p.y, p.z, q.x, q.y, q.z, q.w)
+
+        if not all(math.isfinite(v) for v in values):
+            return
+
+        q_norm = math.sqrt(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w)
+        if q_norm < 1e-12:
+            return
+
+        delta_rotation = Rotation.Quaternion(
+            q.x / q_norm,
+            q.y / q_norm,
+            q.z / q_norm,
+            q.w / q_norm,
+        )   
+        delta_position = Vector(p.x, p.y, p.z)
+
+        now = time.monotonic()
+        if (
+        self._relative_target is None
+        or self._relative_received_at is None
+        or now - self._relative_received_at > self._relative_timeout
+    ):
+            current = convert_mat_to_frame(self.arm.measured_cp())
+        else:
+            current = self._relative_target
+
+    # Both increments are expressed in the base frame.
+        target = Frame(
+            delta_rotation * current.M,
+            current.p + delta_position,
+        )
+
+        self.arm.servo_cp(target)
+        self._relative_target = target
+        self._relative_received_at = now
+        
     def run(self):
         self.publish_js()
         self.publish_cs()
