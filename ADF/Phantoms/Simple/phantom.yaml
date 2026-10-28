@@ -248,8 +248,8 @@ BODY CameraFrame:
   location:
     position:
       x: 0.0307
-      y: 0.25102
-      z: 0.81025
+      y: 0.28316
+      z: 0.84855
     orientation:
       r: 0.69813
       p: -0.0
