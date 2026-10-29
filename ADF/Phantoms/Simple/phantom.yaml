@@ -8832,3 +8832,131 @@ BODY NeedlePickupEntry:
       g: 0.1
       b: 0.1
     transparency: 1.0
+
+# Open-top cradle supports the flat needle while leaving its middle accessible.
+BODY NeedlePickupEntry:
+  name: NeedlePickupEntry
+  mesh: NeedlePickupEntry.OBJ
+  mass: 0.0
+  scale: 1.0
+  location:
+    position:
+      x: 0.00919
+      y: 0.20961
+      z: 0.72084
+    orientation:
+      r: -0.0
+      p: -0.0
+      y: 0.00308
+  collision margin: 5.0e-05
+  passive: true
+  visible: true
+  friction:
+    rolling: 0.0
+    static: 0.5
+  restitution: 0.0
+  collision groups: []
+  compound collision shape:
+  - name: cradle_0
+    shape: BOX
+    geometry:
+      x: 0.0015
+      y: 0.004
+      z: 0.004
+    offset:
+      position:
+        x: -0.006
+        y: 0.0078
+        z: -0.0024
+      orientation:
+        r: 0.0
+        p: 0.0
+        y: 0.0
+  - name: cradle_1
+    shape: BOX
+    geometry:
+      x: 0.0015
+      y: 0.0006
+      z: 0.0015
+    offset:
+      position:
+        x: -0.006
+        y: 0.0061
+        z: 0.00025
+      orientation:
+        r: 0.0
+        p: 0.0
+        y: 0.0
+  - name: cradle_2
+    shape: BOX
+    geometry:
+      x: 0.0015
+      y: 0.0006
+      z: 0.0015
+    offset:
+      position:
+        x: -0.006
+        y: 0.0095
+        z: 0.00025
+      orientation:
+        r: 0.0
+        p: 0.0
+        y: 0.0
+  - name: cradle_3
+    shape: BOX
+    geometry:
+      x: 0.0015
+      y: 0.004
+      z: 0.004
+    offset:
+      position:
+        x: 0.005
+        y: 0.0078
+        z: -0.0024
+      orientation:
+        r: 0.0
+        p: 0.0
+        y: 0.0
+  - name: cradle_4
+    shape: BOX
+    geometry:
+      x: 0.0015
+      y: 0.0006
+      z: 0.0015
+    offset:
+      position:
+        x: 0.005
+        y: 0.0061
+        z: 0.00025
+      orientation:
+        r: 0.0
+        p: 0.0
+        y: 0.0
+  - name: cradle_5
+    shape: BOX
+    geometry:
+      x: 0.0015
+      y: 0.0006
+      z: 0.0015
+    offset:
+      position:
+        x: 0.005
+        y: 0.0095
+        z: 0.00025
+      orientation:
+        r: 0.0
+        p: 0.0
+        y: 0.0
+  use material: false
+  color components:
+    ambient:
+      level: 1.0
+    diffuse:
+      r: 0.1
+      g: 0.45
+      b: 0.65
+    specular:
+      r: 0.1
+      g: 0.1
+      b: 0.1
+    transparency: 1.0
