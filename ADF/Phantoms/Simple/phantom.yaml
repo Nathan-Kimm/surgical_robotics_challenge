@@ -268,9 +268,9 @@ BODY CameraFrame:
   scale: 1.0
   location:
     position:
-      x: 0.0307
-      y: 0.28316
-      z: 0.84855
+      x: 0.03070
+      y: 0.30887
+      z: 0.87919
     orientation:
       r: 0.69813
       p: -0.0

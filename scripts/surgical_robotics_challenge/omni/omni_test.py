@@ -26,12 +26,19 @@ Frames
              follow PyKDL's GetRPY, R = Rz(yaw) * Ry(pitch) * Rx(roll), and
              are printed in degrees.
 
-Setup, once: install the driver (setup_touch_driver.sh), then pair each
-device under its DEVICE_NAMES name by serial number, so that the USB port
-order does not matter (Touch_HeadlessSetup LIST prints the serials):
+Setup, once: install the driver (setup_touch_driver.sh) and list each
+device's serial number in DEVICE_SERIALS (Touch_HeadlessSetup LIST prints
+the serials of the connected devices):
     sudo ./setup_touch_driver.sh
-    /opt/TouchDriver/bin/Touch_HeadlessSetup name="Left Device" sn=18019000318
-    /opt/TouchDriver/bin/Touch_HeadlessSetup name="Right Device" sn=18019000315
+    /opt/TouchDriver/bin/Touch_HeadlessSetup LIST
+Nothing has to be sourced: libHD is in /usr/lib and the driver keeps its
+device configs in ~/.3dsystems/config. open_devices() pairs the devices at
+every start, because the driver opens the /dev/ttyACM<Channel> port written
+in <name>.config and only checks the serial, and the ports are numbered in
+the order the devices were plugged in. Keep one config per serial there:
+the driver uses the first config whose serial matches, so a stale
+"Default Device.config" (Touch_HeadlessSetup run without arguments) hijacks
+the device it names.
 Run (no ROS needed; the VS Code Run button works too):
     python3 omni_test.py                         # Ctrl+C to stop
 A Touch calibrates the first time its stylus rests in the inkwell; until
@@ -42,6 +49,7 @@ Settings are the variables below; there are no command-line arguments.
 
 import ctypes
 import math
+import subprocess
 import sys
 import time
 from collections import namedtuple
@@ -52,7 +60,10 @@ from PyKDL import Frame, Rotation, Vector
 # Settings
 # ----------------------------------------------------------------------------
 HD_LIBRARY = "libHD.so.3.4"                      # installed to /usr/lib by setup_touch_driver.sh
-DEVICE_NAMES = ("Left Device", "Right Device")   # the names Touch_HeadlessSetup paired the devices under
+PAIRING_TOOL = "/opt/TouchDriver/bin/Touch_HeadlessSetup"   # installed by setup_touch_driver.sh
+DEVICE_SERIALS = {"Left Device": "18019000318",  # device name -> its serial number (Touch_HeadlessSetup LIST)
+                  "Right Device": "18019000315"}
+DEVICE_NAMES = tuple(DEVICE_SERIALS)
 PRINT_RATE = 10.0                                # Hz
 
 # ----------------------------------------------------------------------------
@@ -170,9 +181,21 @@ class OmniDevice:
         return Sample(pose, self._buttons.value, self._calibration == HD_CALIBRATION_OK)
 
 
+def pair_device(name):
+    """Rewrites the driver config of the named device so that it points at the port its Touch is on now."""
+    result = subprocess.run([PAIRING_TOOL, f"name={name}", f"sn={DEVICE_SERIALS[name]}"],
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        lines = result.stdout.strip().splitlines() or ["no output"]
+        detail = next((line for line in lines if line.startswith("Error")), lines[-1])
+        raise RuntimeError(f"Could not pair '{name}' (serial {DEVICE_SERIALS[name]}): {detail}")
+
+
 def open_devices(names=DEVICE_NAMES):
-    """The named devices, initialized, then libHD's servo loop started: once, after all of them, as the SDK requires."""
+    """The named devices, paired, initialized, then libHD's servo loop started: once, after all of them, as the SDK requires."""
     hd = load_hd_library()
+    for name in names:
+        pair_device(name)
     devices = [OmniDevice(hd, name) for name in names]
     hd.hdStartScheduler()
     check_error(hd, "Failed to start the servo loop")
@@ -210,8 +233,8 @@ def main():
     try:
         devices = open_devices()
     except (OSError, RuntimeError) as e:
-        sys.exit(f"{e}\nIs each Touch plugged in, switched on, and paired under its DEVICE_NAMES name"
-                 " (see the docstring), with the driver set up (setup_touch_driver.sh)?")
+        sys.exit(f"{e}\nIs each Touch plugged in and switched on, its serial number in DEVICE_SERIALS,"
+                 " and the driver set up (setup_touch_driver.sh)?")
     for device in devices:
         print(f"{device.name}: {device.info(HD_DEVICE_MODEL_TYPE)}, serial {device.info(HD_DEVICE_SERIAL_NUMBER)},"
               f" driver {device.info(HD_DEVICE_DRIVER_VERSION)}, OpenHaptics {device.info(HD_VERSION)}")

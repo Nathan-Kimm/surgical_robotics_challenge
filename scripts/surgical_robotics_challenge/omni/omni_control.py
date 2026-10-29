@@ -42,7 +42,7 @@ Frames
 Run (ROS 2 and the AMBF workspace sourced, or use ../console/ros2_python.sh):
     ./run_env_SIMPLE_LND_420006.sh              # terminal 1, repo root
     ../console/ros2_python.sh omni_control.py   # terminal 2, this folder
-Pairing the two devices under their names: see omni_test.py.
+The devices are found by serial number: DEVICE_SERIALS in omni_test.py.
 
 Settings are the variables below; there are no command-line arguments.
 """
@@ -67,14 +67,14 @@ from omni_test import open_devices, close_devices, BUTTON_1, BUTTON_2
 # ----------------------------------------------------------------------------
 # Settings
 # ----------------------------------------------------------------------------
-LEFT, RIGHT = "Left Device", "Right Device"             # the names Touch_HeadlessSetup paired the devices under
+LEFT, RIGHT = "Left Device", "Right Device"             # the device names of omni_test.DEVICE_SERIALS
 HAND_TO_PSM = {LEFT: "psm1", RIGHT: "psm2"}             # psm1 is on the left of the camera view
 HOME_TIP_IN_CAMERA = {"psm1": coordinate_frames.PSM1.T_tip_cam,   # home poses, as in the
                       "psm2": coordinate_frames.PSM2.T_tip_cam}   # other teleop scripts
 
 CONTROL_RATE = 100                  # Hz
 REPORT_PERIOD = 2.0                 # s, between status lines
-POS_SCALE = 0.001                   # simulation units per stylus millimetre; raise to amplify motion
+POS_SCALE = 0.0007                   # simulation units per stylus millimetre; raise to amplify motion
 JAW_OPEN = 0.5                      # rad, jaw angle with the jaw button up
 
 CLUTCH_BUTTON = BUTTON_1            # lower (dark) stylus button: hold to move the stylus with the tool frozen
@@ -229,7 +229,7 @@ def connect(client_name):
     try:
         omnis = open_devices(tuple(HAND_TO_PSM))
     except (OSError, RuntimeError) as error:
-        sys.exit(f"{error}\nIs each Touch plugged in, switched on, and paired under its name (see omni_test.py)?")
+        sys.exit(f"{error}\nIs each Touch plugged in and switched on, with its serial number in omni_test.DEVICE_SERIALS?")
     print("Both Touch devices found; connecting to the simulator", flush=True)
     simulation_manager = SimulationManager(client_name)
     try:
