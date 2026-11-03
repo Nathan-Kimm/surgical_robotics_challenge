@@ -21,9 +21,10 @@ The sliders only display; the console drives the arms, as in udp_CRTK_console.py
 Handle sliders are on the left of each hand's panel, tool sliders on the right;
 the menus in between say which tool axis each handle axis drives.
 
-How to use: hold both grips naturally, pointing at the screen with the finger
-loops one above the other (the roll read then becomes the roll zero), and pinch
-both fully closed twice within a second (or press Home, or Enter in the terminal).
+How to use: hold both grips level, pointing at the screen with the finger
+loops one above the other (the angles read then are the zeros: that pose of
+the grips is the tools' home orientation), and pinch both fully closed twice
+within a second (or press Home, or Enter in the terminal).
 The tools go to their home pose and from then on
 follow the grips' orientation while the pedal is down; with the pedal up they
 hold their pose, position and orientation, so you can move and turn your
@@ -188,7 +189,7 @@ class ConsoleWindow:
             panel.refresh()
         pedal = "DOWN (tools follow the grips)" if self.teleop.pedal else "UP (clutched: tools hold their pose)"
         homed = "homed, orientation follows the grips (double pinch or Home to home again)" if self.teleop.homed() \
-            else "NOT HOMED: hold the grips naturally, pointing at the screen, pinch both closed twice (or Home)"
+            else "NOT HOMED: hold the grips level, pointing at the screen, pinch both closed twice (or Home)"
         self.status.config(text=f"Pedal {pedal}   |   {homed}")
         self.app.update()
 

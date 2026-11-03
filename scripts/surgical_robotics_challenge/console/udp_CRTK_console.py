@@ -22,21 +22,22 @@ Orientation is absolute while the pedal is down, as in the MTM and Geomagic
 teleoperation scripts, so no offset between hand and tool builds up while
 operating; pressing the pedal puts the tool at the grip's current
 orientation, so press it with the grip about where it was, or the tool snaps
-to the new orientation. The handle orientation is composed from the console's
-yaw, pitch, roll the way Mantis_Client composes them, except that the roll
-(the grip's free spin, whose zero on the console is arbitrary) is counted
-from the homing pose. At
-homing (hold the grips the way they should correspond to the tools' home
-pose, finger loops one above the other, and pinch both grips fully closed
-twice within a second, or press Enter) the tools go to their home pose, the
-handle orientation read at that moment is registered to it and the roll
-read then becomes the roll zero. Afterwards, every cycle, the rotation the
-handle has made since homing is applied to the tool's home orientation,
-expressed in tool axes through the pairing HANDLE_TO_TOOL:
-    R_tool = R_home * C^-1 * R_handle_home^-1 * R_handle * C.
-Commands go through
-the CRTK-style method API of psm_arm.PSM (servo_cp, set_jaw_angle). Only the
-simulator has to run.
+to the new orientation. The handle's rotation since homing is composed from
+the changes of the three console angles since homing, in the order
+Mantis_Client composes them (yaw about the vertical, pitch about the
+horizontal, roll about the grip):
+    R_turn = Rz(yaw - yaw_home) * Ry(pitch - pitch_home) * Rx(roll - roll_home),
+so the console's own zeros of the angles (the roll's is arbitrary, the grip
+spins freely) never enter. At homing (hold the grips level, pointing at the
+screen, finger loops one above the other, and pinch both grips fully closed
+twice within a second, or press Enter) the tools go to their home pose and
+the angles read at that moment become the zeros: that pose of the grips is
+the tools' home orientation. Afterwards, every cycle, R_turn is applied to
+the tool's home orientation, expressed in tool axes through the pairing
+HANDLE_TO_TOOL:
+    R_tool = R_home * C^-1 * R_turn * C.
+Commands go through the CRTK-style method API of psm_arm.PSM (servo_cp,
+set_jaw_angle). Only the simulator has to run.
 
 Frames
     camera : AMBF CameraFrame, +X right, +Y up, +Z toward the viewer.
@@ -44,9 +45,9 @@ Frames
              +Y right, +Z down (CONSOLE_TO_CAMERA).
     handle : the grip's gimbal axes: roll about +x (along the grip, toward the
              surgeon), pitch about +y (right), yaw about +z (up), composed
-             R_handle = Rz(yaw) * Ry(pitch - PITCH_ZERO) * Rx(roll - roll at
-             homing) (ANGLE_ORDER, the Mantis_Client order; its constant
-             base-axis map cancels in the rotation since homing).
+             in the order yaw, pitch, roll (ANGLE_ORDER, the Mantis_Client
+             order; its constant base-axis map cancels in the rotation since
+             homing).
     tool   : PSM tip frame; at home +Z along the shaft into the scene, +X down,
              +Y left. HANDLE_TO_TOOL pairs each handle axis with a tool axis
              and gives the sense of each angle; udp_CRTK_console_gui.py
@@ -55,8 +56,8 @@ Frames
 Run (ROS 2 and the AMBF workspace sourced, or use ./ros2_python.sh):
     ./run_env_SIMPLE_LND_420006.sh              # terminal 1, repo root
     ./ros2_python.sh udp_CRTK_console.py        # terminal 2, this folder
-then hold both grips naturally, pointing at the screen, and pinch both
-closed twice. Hold the pedal down to operate; let it up to hold the tools
+then hold both grips level, pointing at the screen, and pinch both closed
+twice. Hold the pedal down to operate; let it up to hold the tools
 while you move your hands.
 
 Settings are the variables below; there are no command-line arguments.
@@ -126,12 +127,6 @@ HANDLE_TO_TOOL = {
 # surgeon, +y right, +z up) and the order the gimbal composes them, outermost first.
 HANDLE_AXIS = {"roll": "x", "pitch": "y", "yaw": "z"}
 ANGLE_ORDER = ("yaw", "pitch", "roll")
-
-# Console pitch reading [rad] with the grip level (perpendicular to the yaw
-# axis). It sets where the yaw axis lies relative to the grip: if a pure yaw
-# swing of the hand also spins the tool about its shaft, set this to the
-# pitch the console reports while you hold the grip level.
-PITCH_ZERO = 0.0
 
 
 # ----------------------------------------------------------------------------
@@ -215,14 +210,13 @@ def wrap_angle(angle):
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
 
-def handle_rotation(mapping, rpy, roll_zero=0.0):
-    """Console roll, pitch, yaw [rad] -> handle orientation in the console base frame,
-    Rz(yaw) * Ry(pitch - PITCH_ZERO) * Rx(roll - roll_zero), each angle with its sense from `mapping`."""
-    zero = {"roll": roll_zero, "pitch": PITCH_ZERO, "yaw": 0.0}
+def handle_rotation(mapping, rpy):
+    """Console roll, pitch, yaw [rad] -> rotation Rz(yaw) * Ry(pitch) * Rx(roll) about the handle axes,
+    each angle with its sense from `mapping`."""
     R = Rotation()
     for name in ANGLE_ORDER:
         sense = mapping[name][1]
-        R = R * ROTATION_ABOUT[HANDLE_AXIS[name]](sense * (float(rpy[ANGLE_INDEX[name]]) - zero[name]))
+        R = R * ROTATION_ABOUT[HANDLE_AXIS[name]](sense * float(rpy[ANGLE_INDEX[name]]))
     return R
 
 
@@ -285,13 +279,12 @@ class ConsoleTeleop:
         return self.camera_in_base(self.psms[hand]).Inverse() * self.T_cmd[hand]
 
     def handle_turn(self, hand):
-        """Rotation the handle has made since homing, in its homing frame; identity before homing."""
+        """Rotation the handle has made since homing, in its homing frame: the changes of the three angles
+        since homing, composed in the gimbal order; identity before homing."""
         rpy = self.handle_rpy[hand]
         if rpy is None or self.reference[hand] is None:
             return Rotation()
-        mapping, rpy_ref = self.handle_to_tool[hand], self.reference[hand][0]
-        roll_zero = float(rpy_ref[ANGLE_INDEX["roll"]])   # the grip's spin at homing is the gimbal's neutral
-        return handle_rotation(mapping, rpy_ref, roll_zero).Inverse() * handle_rotation(mapping, rpy, roll_zero)
+        return handle_rotation(self.handle_to_tool[hand], rpy - self.reference[hand][0])
 
     def homed(self):
         return all(reference is not None for reference in self.reference.values())
@@ -368,7 +361,7 @@ class ConsoleTeleop:
             angles = " ".join(f"{np.degrees(wrap_angle(a)):.0f}" for a in rpy) if rpy is not None else "-"
             parts.append(f"{psm.name} tip(cam) [{p[0]:.3f} {p[1]:.3f} {p[2]:.3f}] handle rpy(deg) [{angles}]"
                          f" grip {self.grip[hand]:.0%}")
-        homed = "homed" if self.homed() else "NOT HOMED (hold the grips naturally, pinch both closed twice)"
+        homed = "homed" if self.homed() else "NOT HOMED (hold the grips level, pointing at the screen, pinch both closed twice)"
         print(f"console {packets / seconds:.0f} pkt/s  pedal {'DOWN, tools follow' if pedal else 'UP, tools held'}"
               f"  {homed}  "
               + "  ".join(parts), flush=True)
@@ -394,7 +387,7 @@ def connect(client_name):
         sys.exit(f"PSMs or camera not found in the simulation ({error}). "
                  "Is the simulator running? Start it with ./run_env_SIMPLE_LND_420006.sh")
     print("PSMs moving to the home pose; teleoperation running (Ctrl+C to stop).\n"
-          "Hold both grips naturally, pointing at the screen, and pinch both closed twice within a second\n"
+          "Hold both grips level, pointing at the screen, and pinch both closed twice within a second\n"
           "(or press Enter) to home. The tools follow while the pedal is down and hold their pose,\n"
           "position and orientation, while it is up.", flush=True)
     return simulation_manager, console, teleop
