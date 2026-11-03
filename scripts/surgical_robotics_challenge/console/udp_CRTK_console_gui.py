@@ -25,7 +25,10 @@ How to use: hold both grips naturally, pointing at the screen with the finger
 loops one above the other (the roll read then becomes the roll zero), and pinch
 both fully closed twice within a second (or press Home, or Enter in the terminal).
 The tools go to their home pose and from then on
-follow the grips' orientation. Turn one grip about one axis at a time: roll
+follow the grips' orientation while the pedal is down; with the pedal up they
+hold their pose, position and orientation, so you can move and turn your
+hands freely (press it again with the grips about where they were, or the
+tools snap to the new orientation). Turn one grip about one axis at a time: roll
 should spin the tool about its shaft, pitch tip it up and down, yaw swing it
 left and right, each the same way as your hand. If one is wrong, pick another
 entry in that angle's menu (letter = tool axis, sign = sense). A change keeps
@@ -183,7 +186,7 @@ class ConsoleWindow:
     def refresh(self):
         for panel in self.panels:
             panel.refresh()
-        pedal = "DOWN (position follows)" if self.teleop.pedal else "UP (position held)"
+        pedal = "DOWN (tools follow the grips)" if self.teleop.pedal else "UP (clutched: tools hold their pose)"
         homed = "homed, orientation follows the grips (double pinch or Home to home again)" if self.teleop.homed() \
             else "NOT HOMED: hold the grips naturally, pointing at the screen, pinch both closed twice (or Home)"
         self.status.config(text=f"Pedal {pedal}   |   {homed}")

@@ -9,16 +9,23 @@ Teleoperate the AMBF PSMs with the dVTrainer (Mimic Mantis Duo) surgeon console.
 Each console packet carries, per hand, a position increment [micrometres] and
 the handle's absolute roll, pitch, yaw [rad], which count whole turns instead
 of wrapping (packet layout in listen_upd_console.py; the revised
-Mantis_Client marks this format with Qw = 2.0). Position increments are
-summed between control cycles and added to a commanded tool-tip pose in the
-PSM base frame; the console only sends them while the pedal is down, so the
-pedal is the position clutch.
+Mantis_Client marks this format with Qw = 2.0), and the state of the foot
+pedal. The pedal is the clutch, like the lower stylus button in
+omni_control.py: while it is up the tool holds its pose, position and
+orientation, so the hands can be moved and turned freely; while it is down
+the tool follows. Position increments are summed between control cycles and
+added to a commanded tool-tip pose in the PSM base frame; the console only
+sends them while the pedal is down, so the position carries on from where
+it was.
 
-Orientation is absolute, as in the MTM and Geomagic teleoperation scripts:
-nothing clutches it, so no offset between hand and tool can build up. The
-handle orientation is composed from the console's yaw, pitch, roll the way
-Mantis_Client composes them, except that the roll (the grip's free spin,
-whose zero on the console is arbitrary) is counted from the homing pose. At
+Orientation is absolute while the pedal is down, as in the MTM and Geomagic
+teleoperation scripts, so no offset between hand and tool builds up while
+operating; pressing the pedal puts the tool at the grip's current
+orientation, so press it with the grip about where it was, or the tool snaps
+to the new orientation. The handle orientation is composed from the console's
+yaw, pitch, roll the way Mantis_Client composes them, except that the roll
+(the grip's free spin, whose zero on the console is arbitrary) is counted
+from the homing pose. At
 homing (hold the grips the way they should correspond to the tools' home
 pose, finger loops one above the other, and pinch both grips fully closed
 twice within a second, or press Enter) the tools go to their home pose, the
@@ -49,7 +56,8 @@ Run (ROS 2 and the AMBF workspace sourced, or use ./ros2_python.sh):
     ./run_env_SIMPLE_LND_420006.sh              # terminal 1, repo root
     ./ros2_python.sh udp_CRTK_console.py        # terminal 2, this folder
 then hold both grips naturally, pointing at the screen, and pinch both
-closed twice.
+closed twice. Hold the pedal down to operate; let it up to hold the tools
+while you move your hands.
 
 Settings are the variables below; there are no command-line arguments.
 """
@@ -318,11 +326,11 @@ class ConsoleTeleop:
             self.handle_rpy[hand] = rpy
             self.grip[hand] = grip_opening(grasp)
             self.pedal = pedal
-            T = self.T_cmd[hand]
-            R_cb = self.camera_in_base(psm).M
-            step = R_cb * to_vector(CONSOLE_TO_CAMERA @ dpos * POS_SCALE)
-            self.T_cmd[hand] = Frame(self.commanded_rotation(hand, R_cb, T.M), T.p + step)
-
+            if pedal:                                  # pedal up = clutch: the tool holds its pose
+                T = self.T_cmd[hand]
+                R_cb = self.camera_in_base(psm).M
+                step = R_cb * to_vector(CONSOLE_TO_CAMERA @ dpos * POS_SCALE)
+                self.T_cmd[hand] = Frame(self.commanded_rotation(hand, R_cb, T.M), T.p + step)
             psm.servo_cp(self.T_cmd[hand])
             psm.set_jaw_angle(jaw_angle(grasp))
         self.detect_pinch()
@@ -361,7 +369,8 @@ class ConsoleTeleop:
             parts.append(f"{psm.name} tip(cam) [{p[0]:.3f} {p[1]:.3f} {p[2]:.3f}] handle rpy(deg) [{angles}]"
                          f" grip {self.grip[hand]:.0%}")
         homed = "homed" if self.homed() else "NOT HOMED (hold the grips naturally, pinch both closed twice)"
-        print(f"console {packets / seconds:.0f} pkt/s  pedal {'DOWN' if pedal else 'UP'}  {homed}  "
+        print(f"console {packets / seconds:.0f} pkt/s  pedal {'DOWN, tools follow' if pedal else 'UP, tools held'}"
+              f"  {homed}  "
               + "  ".join(parts), flush=True)
 
 
@@ -386,7 +395,8 @@ def connect(client_name):
                  "Is the simulator running? Start it with ./run_env_SIMPLE_LND_420006.sh")
     print("PSMs moving to the home pose; teleoperation running (Ctrl+C to stop).\n"
           "Hold both grips naturally, pointing at the screen, and pinch both closed twice within a second\n"
-          "(or press Enter) to home.", flush=True)
+          "(or press Enter) to home. The tools follow while the pedal is down and hold their pose,\n"
+          "position and orientation, while it is up.", flush=True)
     return simulation_manager, console, teleop
 
 
