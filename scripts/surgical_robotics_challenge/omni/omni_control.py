@@ -44,6 +44,10 @@ Run (ROS 2 and the AMBF workspace sourced, or use ../console/ros2_python.sh):
     ../console/ros2_python.sh omni_control.py   # terminal 2, this folder
 The devices are found by serial number: DEVICE_SERIALS in omni_test.py.
 
+Every run is recorded to logs/omni_teleop_<start time>.csv (omni_log.py):
+each control cycle, the raw stylus reading, the command sent to the PSM and
+the PSM measured in the simulation, 7 DOF each. plot_omni_log.py plots them.
+
 Settings are the variables below; there are no command-line arguments.
 """
 
@@ -62,7 +66,9 @@ from surgical_robotics_challenge.simulation_manager import SimulationManager
 from surgical_robotics_challenge.psm_arm import PSM
 from surgical_robotics_challenge.ecm_arm import ECM
 from surgical_robotics_challenge.utils import coordinate_frames
+from surgical_robotics_challenge.utils.utilities import convert_mat_to_frame
 from omni_test import open_devices, close_devices, BUTTON_1, BUTTON_2
+from omni_log import TeleopLog
 
 # ----------------------------------------------------------------------------
 # Settings
@@ -126,9 +132,11 @@ class ArmTeleop:
         self.T_cmd = psm.T_t_b_home          # commanded tip pose in the PSM base frame
         self.pos_scale = POS_SCALE
         self.stylus = None                   # latest stylus pose in camera axes [mm], None until calibrated
+        self.console_pose = Frame()          # latest raw stylus pose in the device frame [mm], for the log
         self.calibrated = False
         self.clutched = False
         self.jaw_closed = False
+        self.jaw_cmd = jaw_angle(False)      # jaw angle sent to the PSM [rad]
         self.home_requested = False
         self.click_times = []                # recent clutch-button presses, for the double click
 
@@ -138,6 +146,10 @@ class ArmTeleop:
     def tip_in_camera(self):
         """Commanded tool-tip pose in the camera frame."""
         return self.camera_in_base().Inverse() * self.T_cmd
+
+    def measured_tip_in_base(self):
+        """Tool-tip pose measured in the simulator, PSM base frame (measured_cp returns a numpy matrix)."""
+        return convert_mat_to_frame(self.psm.measured_cp())
 
     def stylus_turn(self):
         """Rotation of the stylus away from STYLUS_NEUTRAL, camera axes; identity until calibrated."""
@@ -164,6 +176,7 @@ class ArmTeleop:
 
     def update(self):
         sample = self.omni.read()
+        self.console_pose = sample.pose
         self.calibrated = sample.calibrated
         clutched = bool(sample.buttons & CLUTCH_BUTTON)
         if clutched and not self.clutched:
@@ -178,8 +191,9 @@ class ArmTeleop:
             T_c_b = self.camera_in_base()
             step = Vector() if previous is None else T_c_b.M * ((self.stylus.p - previous.p) * self.pos_scale)
             self.T_cmd = Frame(T_c_b.M * self.stylus_turn() * self.home_tip_in_camera.M, self.T_cmd.p + step)
+        self.jaw_cmd = jaw_angle(self.jaw_closed)
         self.psm.servo_cp(self.T_cmd)
-        self.psm.set_jaw_angle(jaw_angle(self.jaw_closed))
+        self.psm.set_jaw_angle(self.jaw_cmd)
 
     def report(self):
         p = self.tip_in_camera().p
@@ -198,10 +212,16 @@ class OmniTeleop:
         self.arms = {omni.name: ArmTeleop(omni, load_psm(simulation_manager, self.camera, HAND_TO_PSM[omni.name]),
                                           self.camera, OMNI_TO_CAMERA[omni.name])
                      for omni in omnis}
+        self.log = TeleopLog()
 
     def update(self):
         for arm in self.arms.values():
             arm.update()
+        self.log.record(self.arms.values())
+
+    def close(self):
+        """Closes the recording (the Touch devices are closed with omni_test.close_devices)."""
+        self.log.close()
 
     def request_home(self):
         """Home both arms at the next control cycle (safe to call from another thread)."""
@@ -238,7 +258,8 @@ def connect(client_name):
         close_devices(omnis)
         sys.exit(f"PSMs or camera not found in the simulation ({error}). "
                  "Is the simulator running? Start it with ./run_env_SIMPLE_LND_420006.sh")
-    print("PSMs moving to the home pose; teleoperation running (Ctrl+C to stop).\n"
+    print(f"Recording to {teleop.log.path}\n"
+          "PSMs moving to the home pose; teleoperation running (Ctrl+C to stop).\n"
           "Rest each stylus in its inkwell once to calibrate, then hold them level, pointing at the screen.\n"
           "The tools follow the styluses; hold the lower button to move a stylus with its tool frozen,\n"
           "double-click it (or press Enter) to put the tool back at its home position,\n"
@@ -265,6 +286,7 @@ def main():
             raise
     finally:
         close_devices(omnis)
+        teleop.close()
 
 
 if __name__ == "__main__":

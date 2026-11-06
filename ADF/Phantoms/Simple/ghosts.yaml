@@ -20,13 +20,13 @@ ignore inter-collision: true
 namespace: /ambf/env/phantom/
 
 collision geometry: &box_geometry
-    x: 0.005
-    y: 0.005
+    x: 0.008
+    y: 0.008
     z: 0.00045
 
 shape geometry: &shape_geometry
-    x: 0.005
-    y: 0.005
+    x: 0.008
+    y: 0.008
     z: 0.00045
 
 BODY ghostEntry1:

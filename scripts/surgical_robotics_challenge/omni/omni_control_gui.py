@@ -29,6 +29,8 @@ one axis at a time: the tool should turn the same way on screen.
 
 Run (simulator up):
     ../console/ros2_python.sh omni_control_gui.py
+The session is recorded to logs/ like omni_control.py; plot_omni_log.py
+draws the stylus against the tool from the recording.
 """
 
 import math
@@ -175,6 +177,7 @@ def main():
     finally:
         from omni_test import close_devices
         close_devices(omnis)
+        teleop.close()
         print(f"POS_SCALE = {next(iter(teleop.arms.values())).pos_scale:g}   # for omni_control.py")
 
 
