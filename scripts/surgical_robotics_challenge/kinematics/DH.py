@@ -83,14 +83,14 @@ class DH:
         st = np.sin(th)
 
         if convention == Convention.STANDARD:
-            mat = np.mat([
+            mat = np.asmatrix([
                 [ct, -st * ca,  st * sa,  a * ct],
                 [st,  ct * ca, -ct * sa,  a * st],
                 [0,        sa,       ca,       d],
                 [0,         0,        0,       1]
             ])
         elif convention == Convention.MODIFIED:
-            mat = np.mat([
+            mat = np.asmatrix([
                 [ct, -st, 0, a],
                 [st * ca, ct * ca, -sa, -d * sa],
                 [st * sa, ct * sa, ca, d * ca],

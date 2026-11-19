@@ -67,7 +67,7 @@ from surgical_robotics_challenge.psm_arm import PSM
 from surgical_robotics_challenge.ecm_arm import ECM
 from surgical_robotics_challenge.utils import coordinate_frames
 from surgical_robotics_challenge.utils.utilities import convert_mat_to_frame
-from omni_test import open_devices, close_devices, BUTTON_1, BUTTON_2
+from omni_test import open_devices, close_devices, Sample, BUTTON_1, BUTTON_2
 from omni_log import TeleopLog
 
 # ----------------------------------------------------------------------------
@@ -120,6 +120,23 @@ def load_psm(simulation_manager, camera, name):
     return psm
 
 
+class UdpOmniDevice:
+    """Expose one stylus from the shared UDP packet through the device read API."""
+
+    def __init__(self, receiver, index, name):
+        self.receiver = receiver
+        self.index = index
+        self.name = name
+
+    def read(self):
+        if self.receiver.states is None:
+            return None
+        state = self.receiver.states[self.index]
+        rotation = Rotation.RPY(*(math.radians(angle) for angle in state["orientation"]))
+        pose = Frame(rotation, Vector(*state["position"]))
+        return Sample(pose, state["buttons"], state["calibrated"])
+
+
 class ArmTeleop:
     """One stylus driving one PSM: servo_cp and jaw commands from the stylus motion."""
 
@@ -133,6 +150,7 @@ class ArmTeleop:
         self.pos_scale = POS_SCALE
         self.stylus = None                   # latest stylus pose in camera axes [mm], None until calibrated
         self.console_pose = Frame()          # latest raw stylus pose in the device frame [mm], for the log
+        self.input_connected = False
         self.calibrated = False
         self.clutched = False
         self.jaw_closed = False
@@ -175,16 +193,23 @@ class ArmTeleop:
             self.request_home()
 
     def update(self):
+        previous = self.stylus
         sample = self.omni.read()
-        self.console_pose = sample.pose
-        self.calibrated = sample.calibrated
-        clutched = bool(sample.buttons & CLUTCH_BUTTON)
-        if clutched and not self.clutched:
-            self.count_click()
-        self.clutched = clutched
-        self.jaw_closed = bool(sample.buttons & JAW_BUTTON)
-        previous, self.stylus = self.stylus, (in_camera_axes(sample.pose, self.omni_to_camera)
-                                              if sample.calibrated else None)
+        self.input_connected = sample is not None
+        if sample is None:
+            self.calibrated = False
+            self.clutched = False
+            self.click_times.clear()
+            self.stylus = None
+        else:
+            self.console_pose = sample.pose
+            self.calibrated = sample.calibrated
+            clutched = bool(sample.buttons & CLUTCH_BUTTON)
+            if clutched and not self.clutched:
+                self.count_click()
+            self.clutched = clutched
+            self.jaw_closed = bool(sample.buttons & JAW_BUTTON)
+            self.stylus = in_camera_axes(sample.pose, self.omni_to_camera) if sample.calibrated else None
         if self.home_requested:
             self.home()
         if self.stylus is not None and not self.clutched:   # the clutch freezes the tool, position and orientation
@@ -196,6 +221,8 @@ class ArmTeleop:
         self.psm.set_jaw_angle(self.jaw_cmd)
 
     def report(self):
+        if not self.input_connected:
+            return f"{self.omni.name} -> {self.psm.name}: waiting for UDP input"
         p = self.tip_in_camera().p
         stylus = "-" if self.stylus is None else " ".join(f"{math.degrees(a):.0f}" for a in self.stylus.M.GetRPY())
         state = "ok" if self.calibrated else "NOT CALIBRATED (rest the stylus in the inkwell)"
@@ -244,18 +271,21 @@ def watch_enter(callback):
     threading.Thread(target=loop, daemon=True).start()
 
 
-def connect(client_name):
-    """Both Touch devices and the teleop attached to the running simulator; exits with a hint if anything is missing."""
-    try:
-        omnis = open_devices(tuple(HAND_TO_PSM))
-    except (OSError, RuntimeError) as error:
-        sys.exit(f"{error}\nIs each Touch plugged in and switched on, with its serial number in omni_test.DEVICE_SERIALS?")
-    print("Both Touch devices found; connecting to the simulator", flush=True)
+def connect(client_name, omnis=None):
+    """Attach to AMBF with the supplied devices, or open the local Touch devices."""
+    local_devices = omnis is None
+    if local_devices:
+        try:
+            omnis = open_devices(tuple(HAND_TO_PSM))
+        except (OSError, RuntimeError) as error:
+            sys.exit(f"{error}\nIs each Touch plugged in and switched on, with its serial number in omni_test.DEVICE_SERIALS?")
+        print("Both Touch devices found; connecting to the simulator", flush=True)
     simulation_manager = SimulationManager(client_name)
     try:
         teleop = OmniTeleop(simulation_manager, omnis)
     except (RuntimeError, AttributeError) as error:
-        close_devices(omnis)
+        if local_devices:
+            close_devices(omnis)
         sys.exit(f"PSMs or camera not found in the simulation ({error}). "
                  "Is the simulator running? Start it with ./run_env_SIMPLE_LND_420006.sh")
     print(f"Recording to {teleop.log.path}\n"

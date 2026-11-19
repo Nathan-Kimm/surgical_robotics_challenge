@@ -29,15 +29,25 @@ one axis at a time: the tool should turn the same way on screen.
 
 Run (simulator up):
     ../console/ros2_python.sh omni_control_gui.py
+With the Touch devices on another PC, run omni_udp_sender.py there and use:
+    ../console/ros2_python.sh omni_control_gui.py --udp
+The GUI listens on UDP port 5005 in this mode. Stop the standalone
+omni_receiver.py printer before starting the GUI so the port is available.
+
 The session is recorded to logs/ like omni_control.py; plot_omni_log.py
 draws the stylus against the tool from the recording.
 """
 
+import argparse
 import math
 import time
 import tkinter as tk
+from contextlib import closing
 
-from omni_control import CONTROL_RATE, LEFT, POS_SCALE, REPORT_PERIOD, RIGHT, connect, watch_enter
+from omni_control import (CONTROL_RATE, LEFT, POS_SCALE, REPORT_PERIOD, RIGHT,
+                          UdpOmniDevice, connect, watch_enter)
+from omni_receiver import DEVICE_NAMES, LISTEN_IP, PORT, OmniReceiver
+from omni_test import close_devices
 
 # ----------------------------------------------------------------------------
 # Settings
@@ -114,7 +124,10 @@ class ArmPanel:
         calibrated = "calibrated" if self.arm.calibrated else "NOT CALIBRATED: rest the stylus in the inkwell"
         clutch = "HELD, tool frozen" if self.arm.clutched else "free, tool follows"
         jaw = "closed" if self.arm.jaw_closed else "open"
-        self.status.config(text=f"Touch {calibrated}   |   clutch {clutch}   |   jaw {jaw}")
+        if self.arm.input_connected:
+            self.status.config(text=f"Touch {calibrated}   |   clutch {clutch}   |   jaw {jaw}")
+        else:
+            self.status.config(text="Waiting for UDP input   |   tool and jaw held")
 
 
 class OmniWindow:
@@ -154,15 +167,19 @@ class OmniWindow:
 # ----------------------------------------------------------------------------
 # Main loop
 # ----------------------------------------------------------------------------
-def main():
-    simulation_manager, omnis, teleop = connect("omni_control_gui")
-    watch_enter(teleop.request_home)
-    window = OmniWindow(teleop)
-
-    rate = simulation_manager.create_rate(CONTROL_RATE)
-    last_report = time.monotonic()
+def run_gui(receiver=None):
+    devices = None
+    if receiver is not None:
+        devices = [UdpOmniDevice(receiver, i, name) for i, name in enumerate(DEVICE_NAMES)]
+    simulation_manager, omnis, teleop = connect("omni_control_gui", devices)
     try:
+        watch_enter(teleop.request_home)
+        window = OmniWindow(teleop)
+        rate = simulation_manager.create_rate(CONTROL_RATE)
+        last_report = time.monotonic()
         while window.open and not simulation_manager.is_shutdown():
+            if receiver is not None:
+                receiver.poll()
             teleop.update()
             window.refresh()
             if time.monotonic() - last_report >= REPORT_PERIOD:
@@ -175,10 +192,26 @@ def main():
         if not simulation_manager.is_shutdown():   # a real error; after Ctrl+C ROS is already down
             raise
     finally:
-        from omni_test import close_devices
-        close_devices(omnis)
+        if receiver is None:
+            close_devices(omnis)
         teleop.close()
         print(f"POS_SCALE = {next(iter(teleop.arms.values())).pos_scale:g}   # for omni_control.py")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Control the AMBF arms with two Touch styluses.")
+    parser.add_argument("--udp", action="store_true", help=f"receive stylus states on UDP port {PORT}")
+    if not parser.parse_args().udp:
+        run_gui()
+        return
+
+    try:
+        receiver = OmniReceiver()
+    except OSError as error:
+        parser.exit(1, f"Could not listen on UDP {LISTEN_IP}:{PORT}: {error}\n")
+    with closing(receiver):
+        print(f"Listening for Omni input on UDP port {PORT}", flush=True)
+        run_gui(receiver)
 
 
 if __name__ == "__main__":
